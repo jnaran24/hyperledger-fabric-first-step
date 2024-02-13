@@ -13,35 +13,84 @@ type SmartContract struct {
 	contractapi.Contract
 }
 
+type Cliente struct {
+	Id             string
+	NombreCompleto string
+	Saldo          float64
+	ValorPromedio  float64
+	Moneda         string
+}
+
+// Lista de clientes
+var clientes = []Cliente{
+	{
+		Id:             "1020498574",
+		NombreCompleto: "Diego Salazar Rojas",
+		Saldo:          1000.0,
+		ValorPromedio:  200.0,
+		Moneda:         "EUR",
+	},
+	{
+		Id:             "1030599585",
+		NombreCompleto: "Ana García López",
+		Saldo:          500.0,
+		ValorPromedio:  150.0,
+		Moneda:         "USD",
+	},
+	{
+		Id:             "1040600596",
+		NombreCompleto: "Juan Pérez Martínez",
+		Saldo:          2000.0,
+		ValorPromedio:  300.0,
+		Moneda:         "COP",
+	},
+	{
+		Id:             "1050701607",
+		NombreCompleto: "María González Pérez",
+		Saldo:          1500.0,
+		ValorPromedio:  250.0,
+		Moneda:         "EUR",
+	},
+	{
+		Id:             "1060802618",
+		NombreCompleto: "Pedro Rodríguez García",
+		Saldo:          1200.0,
+		ValorPromedio:  200.0,
+		Moneda:         "USD",
+	},
+}
+
 // Estructura de la transacción
 type Transaccion struct {
-	Cliente       string    `json:"cliente"`
+	IdCliente     string    `json:"idCliente"`
 	Monto         float64   `json:"monto"`
-	Moneda        string    `json:"moenda"`
 	Destino       string    `json:"destino"`
+	MonedaDestino string    `json:"monedaDestino"`
 	IdTransaccion string    `json:"idTransaccion"`
-	Firma         string    `json:"firma"`
-	Hash          string    `json:"hash"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
 // Lista de entidades sancionadas
-var entidadesSancionadas = []string{"entidadSancionada1"}
+var entidadesSancionadas = []string{
+	"entidadSancionada1",
+	"entidadSancionada3",
+	"entidadSancionada5",
+}
 
-// Valor promedio de transacciones del cliente
-var valorPromedio float64 = 200.0
-
-// Moneda del destino por defecto
-var destinoMoneda string = "EUR"
-
-func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInterface, cliente string, monto float64, moneda string, destino string, idTransaccion string) error {
+func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInterface, idCliente string, monto float64, monedaDestino string, destino string, idTransaccion string) error {
 	//validaciones
 
+	cliente := BuscarClientePorID(idCliente)
+	var currentClient Cliente = cliente
+
 	// Validar fondos
-	if monto > GetSaldo(cliente) {
+	if monto > GetSaldo(idCliente) {
 		fmt.Println("Fondos insuficientes")
 		return nil
 	}
+
+	// Obtener la moneda del cliente
+	monedaOrigen := currentClient.Moneda
 
 	// Validar entidades sancionadas
 	if EstaSancionado(destino) {
@@ -50,21 +99,21 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 	}
 
 	// Validar transacción sospechosa
-	if monto > valorPromedio*1.5 {
+	if monto > currentClient.ValorPromedio*1.5 {
 		fmt.Println("Transacción sospechosa")
 		return nil
 	}
 
 	// Convertir moneda (si es necesario)
-	if moneda != destinoMoneda {
-		monto = ConvertirMoneda(monto, moneda, destinoMoneda)
+	if monedaOrigen != monedaDestino {
+		monto = ConvertirMoneda(monto, monedaOrigen, monedaDestino)
 	}
 
 	// Crear transacción
 	transaccion := Transaccion{
-		Cliente:       cliente,
+		IdCliente:     idCliente,
 		Monto:         monto,
-		Moneda:        moneda,
+		MonedaDestino: monedaDestino,
 		Destino:       destino,
 		IdTransaccion: idTransaccion,
 		//Firma:     firma,
@@ -98,6 +147,16 @@ func (s *SmartContract) ConsultarTransaccion(ctx contractapi.TransactionContextI
 	return transaccion, nil
 }
 
+func BuscarClientePorID(id string) Cliente {
+	for _, cliente := range clientes {
+		if cliente.Id == id {
+			return cliente
+		}
+	}
+
+	return Cliente{}
+}
+
 // Función para convertir moneda
 func ConvertirMoneda(monto float64, monedaOrigen string, monedaDestino string) float64 {
 	var tasaCambio float64
@@ -123,6 +182,16 @@ func ConvertirMoneda(monto float64, monedaOrigen string, monedaDestino string) f
 	return monto * tasaCambio
 }
 
+// Obtener el tipo de moneda del cliente
+func GetMonedaCliente(idCliente string) string {
+	for _, cliente := range clientes {
+		if cliente.Id == idCliente {
+			return cliente.Moneda
+		}
+	}
+	return "" // Moneda por defecto si no se encuentra el cliente
+}
+
 // Función para verificar si una entidad está sancionada
 func EstaSancionado(entidad string) bool {
 	for _, sancionado := range entidadesSancionadas {
@@ -135,9 +204,13 @@ func EstaSancionado(entidad string) bool {
 
 // Función para obtener el saldo del cliente
 func GetSaldo(cliente string) float64 {
-	return 1000.0 // Saldo ficticio
+	for _, clienteEnLista := range clientes {
+		if clienteEnLista.Id == cliente { // Comparar el ID del cliente con la propiedad Id del objeto en la lista
+			return clienteEnLista.Saldo
+		}
+	}
+	return 0.0 // Saldo por defecto si no se encuentra el cliente
 }
-
 func main() {
 	chaincode, err := contractapi.NewChaincode(new(SmartContract))
 
