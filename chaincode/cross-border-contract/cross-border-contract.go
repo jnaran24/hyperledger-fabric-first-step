@@ -80,13 +80,21 @@ var entidadesSancionadas = []string{
 func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInterface, idCliente string, monto float64, monedaDestino string, destino string, idTransaccion string) error {
 	//validaciones
 
+	// Validar si el ID de la transacción ya existe
+	transactionAsBytesQuery, err := ctx.GetStub().GetState(idTransaccion)
+	if err != nil {
+		return fmt.Errorf("Failed to read from world state. %s", err.Error())
+	}
+	if transactionAsBytesQuery != nil {
+		return fmt.Errorf("%s already exist", idTransaccion)
+	}
+
 	cliente := BuscarClientePorID(idCliente)
 	var currentClient Cliente = cliente
 
 	// Validar fondos
 	if monto > GetSaldo(idCliente) {
-		fmt.Println("Fondos insuficientes")
-		return nil
+		return fmt.Errorf("Fondos insuficientes")
 	}
 
 	// Obtener la moneda del cliente
@@ -94,14 +102,12 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 
 	// Validar entidades sancionadas
 	if EstaSancionado(destino) {
-		fmt.Println("Entidad sancionada")
-		return nil
+		return fmt.Errorf("Entidad sancionada")
 	}
 
 	// Validar transacción sospechosa
 	if monto > currentClient.ValorPromedio*1.5 {
-		fmt.Println("Transacción sospechosa")
-		return nil
+		return fmt.Errorf("Transacción sospechosa")
 	}
 
 	// Convertir moneda (si es necesario)
