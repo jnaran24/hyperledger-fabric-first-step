@@ -1,0 +1,65 @@
+{
+	"name": "test-network",
+	"version": "1.0.0",
+	"client": {
+		"tlsEnable": true,
+		"adminCredential": {
+			"id": "exploreradmin",
+			"password": "exploreradminpw"
+		},
+		"enableAuthentication": true,
+		"organization": "Org1MSP",
+		"connection": {
+			"timeout": {
+				"peer": {
+					"endorser": "300"
+				},
+				"orderer": "300"
+			}
+		}
+	},
+	"channels": {
+		"cross-border-channel": {
+			"peers": {
+				"peer0.org1.cross-border-transaction.com": {},
+				"peer0.org2.cross-border-transaction.com": {}
+			}
+		}
+	},
+	"organizations": {
+		"Org1MSP": {
+			"mspid": "Org1MSP",
+			"adminPrivateKey": {
+				"path": "/tmp/crypto/org1.cross-border-transaction.com/users/Admin@org1.cross-border-transaction.com/msp/keystore/priv_sk"
+			},
+			"peers": ["peer0.org1.cross-border-transaction.com"],
+			"signedCert": {
+				"path": "/tmp/crypto/org1.cross-border-transaction.com/users/Admin@org1.cross-border-transaction.com/msp/signcerts/Admin@org1.cross-border-transaction.com-cert.pem"
+			}
+		},
+		"Org2MSP": {
+			"mspid": "Org2MSP",
+			"adminPrivateKey": {
+				"path": "/tmp/crypto/org2.cross-border-transaction.com/users/Admin@org2.cross-border-transaction.com/msp/keystore/priv_sk"
+			},
+			"peers": ["peer0.org2.cross-border-transaction.com"],
+			"signedCert": {
+				"path": "/tmp/crypto/org2.cross-border-transaction.com/users/Admin@org2.cross-border-transaction.com/msp/signcerts/Admin@org2.cross-border-transaction.com-cert.pem"
+			}
+		}
+	},
+	"peers": {
+		"peer0.org1.cross-border-transaction.com": {
+			"tlsCACerts": {
+				"path": "/tmp/crypto/org1.cross-border-transaction.com/peers/peer0.org1.cross-border-transaction.com/tls/ca.crt"
+			},
+			"url": "grpcs://peer0.org1.cross-border-transaction.com:7051"
+		},
+		"peer0.org2.cross-border-transaction.com": {
+			"tlsCACerts": {
+				"path": "/tmp/crypto/org2.cross-border-transaction.com/peers/peer0.org2.cross-border-transaction.com/tls/ca.crt"
+			},
+			"url": "grpcs://peer0.org2.cross-border-transaction.com:7051"
+		}
+	}
+}
