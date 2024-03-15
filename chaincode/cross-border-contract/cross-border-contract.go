@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -133,80 +132,88 @@ var entidadesSancionadas = []EntidadSancionada{
 	},
 }
 
-func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInterface, idCliente string, monto float64, monedaDestino string, destino string, idTransaccion string, firstTime string) error {
+func (s *SmartContract) PoblarBD(ctx contractapi.TransactionContextInterface) error {
+	var mensajeError string
+
+	// Agregar los clientes del banco 1 al ledger
+	for _, cliente := range clientesBanco1 {
+		clienteAsBytes, _ := json.Marshal(cliente)
+		err := ctx.GetStub().PutState(cliente.Id, clienteAsBytes)
+		if err != nil {
+			mensajeError = fmt.Sprintf("error al crear cliente: %s", err.Error())
+			return fmt.Errorf(mensajeError)
+		}
+	}
+
+	// Agregar los clientes del banco 2 al ledger
+	for _, cliente := range clientesBanco2 {
+		clienteAsBytes, _ := json.Marshal(cliente)
+		err := ctx.GetStub().PutState(cliente.Id, clienteAsBytes)
+		if err != nil {
+			mensajeError = fmt.Sprintf("error al crear cliente: %s", err.Error())
+			return fmt.Errorf(mensajeError)
+		}
+	}
+
+	// Agregar las entidades sancionadas
+	for _, nombre := range entidadesSancionadas {
+		nombreString := nombre.Nombre
+		idString := nombre.Id
+
+		// Crear una nueva entidad sancionada
+		entidadSancionada := EntidadSancionada{
+			Id:     idString,
+			Nombre: nombreString,
+		}
+
+		// Convertir la entidad a JSON
+		entidadAsBytes, _ := json.Marshal(entidadSancionada)
+
+		// Almacenar la entidad en el ledger
+		err := ctx.GetStub().PutState(entidadSancionada.Id, entidadAsBytes)
+		if err != nil {
+			mensajeError = fmt.Sprintf("error al agregar entidad sancionada: %s", err.Error())
+			return fmt.Errorf(mensajeError)
+		}
+	}
+
+	if mensajeError == "" {
+		fmt.Println("Aprovisionamiento completado con éxito")
+		return nil
+	} else {
+		fmt.Println("Error en aprovisionamiento:", mensajeError)
+		return fmt.Errorf(mensajeError)
+	}
+}
+
+func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInterface, idCliente string, monto float64, monedaDestino string, destino string, idTransaccion string) error {
 	// Validaciones
-
-	// Validar si es aprovisionamiento
-	firstTimeBool, err := strconv.ParseBool(firstTime)
-	if err != nil {
-		return fmt.Errorf("Error en input aprovisionamiento: %s", err.Error())
-	}
-	if firstTimeBool {
-		// Agregar los clientes del banco 1 al ledger
-		for _, cliente := range clientesBanco1 {
-			clienteAsBytes, _ := json.Marshal(cliente)
-			err := ctx.GetStub().PutState(cliente.Id, clienteAsBytes)
-			if err != nil {
-				return fmt.Errorf("Error al crear cliente: %s", err.Error())
-			}
-		}
-
-		// Agregar los clientes del banco 2 al ledger
-		for _, cliente := range clientesBanco2 {
-			clienteAsBytes, _ := json.Marshal(cliente)
-			err := ctx.GetStub().PutState(cliente.Id, clienteAsBytes)
-			if err != nil {
-				return fmt.Errorf("Error al crear cliente: %s", err.Error())
-			}
-		}
-
-		// Agregar las entidades sancionadas
-		for _, nombre := range entidadesSancionadas {
-			nombreString := nombre.Nombre
-			idString := nombre.Id
-
-			// Crear una nueva entidad sancionada
-			entidadSancionada := EntidadSancionada{
-				Id:     idString,
-				Nombre: nombreString,
-			}
-
-			// Convertir la entidad a JSON
-			entidadAsBytes, _ := json.Marshal(entidadSancionada)
-
-			// Almacenar la entidad en el ledger
-			err := ctx.GetStub().PutState(entidadSancionada.Id, entidadAsBytes)
-			if err != nil {
-				return fmt.Errorf("Error al agregar entidad sancionada: %s", err.Error())
-			}
-		}
-	}
 
 	// Validar si el ID de la transacción ya existe
 	transactionAsBytesQuery, err := ctx.GetStub().GetState(idTransaccion)
 	if err != nil {
-		return fmt.Errorf("Failed to read from world state. %s", err.Error())
+		return fmt.Errorf("failed to read from world state. %s", err.Error())
 	}
 	if transactionAsBytesQuery != nil {
 		return fmt.Errorf("%s already exist", idTransaccion)
 	}
 
 	// Obtener el cliente 1 del ledger
-	cliente, err := BuscarClientePorIDBanco1(ctx, idCliente, firstTime)
+	cliente, err := BuscarClientePorIDBanco1(ctx, idCliente)
 	if err != nil {
-		return fmt.Errorf("Error al obtener el cliente del banco 1: %s", err)
+		return fmt.Errorf("error al obtener el cliente del banco 1: %s", err)
 
 	}
 	var currentClient Cliente = cliente
 
 	// Obtener el saldo del cliente 1 del ledger
-	saldoCliente1, err := GetSaldo(ctx, idCliente, firstTimeBool)
+	saldoCliente1, err := GetSaldo(ctx, idCliente)
 	if err != nil {
-		return fmt.Errorf("Error al obtener el saldo del cliente: %s", err.Error())
+		return fmt.Errorf("error al obtener el saldo del cliente: %s", err.Error())
 	}
 	// Validar fondos
 	if monto > saldoCliente1 {
-		return fmt.Errorf("Fondos insuficientes")
+		return fmt.Errorf("fondos insuficientes")
 	}
 
 	// Obtener la moneda del cliente
@@ -214,12 +221,12 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 
 	// Validar entidades sancionadas
 	if EstaSancionado(ctx, destino) {
-		return fmt.Errorf("Entidad '%s' sancionada", destino)
+		return fmt.Errorf("entidad '%s' sancionada", destino)
 	}
 
 	// Validar transacción sospechosa
 	if monto > currentClient.ValorPromedio*1.5 {
-		return fmt.Errorf("Transacción sospechosa")
+		return fmt.Errorf("transacción sospechosa")
 	}
 
 	// Convertir moneda (si es necesario)
@@ -227,18 +234,21 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 		monto = ConvertirMoneda(monto, monedaOrigen, monedaDestino)
 	}
 
-	// Obtener el cliente 2 del ledger
-	cliente2, err := BuscarClientePorIDBanco2(ctx, destino)
-	if err != nil {
-		return fmt.Errorf("Error al obtener el cliente 2: %s", err)
-	}
+	// **Obtener el equivalente del monto en la moneda local del cliente 1**
+	montoLocalCliente1 := ConvertirMoneda(monto, monedaDestino, monedaOrigen)
 
-	// Restar monto al cliente 1
-	cliente.Saldo -= monto
+	// Restar el monto en la moneda local del cliente 1
+	cliente.Saldo -= montoLocalCliente1
 	cliente1AsBytes, _ := json.Marshal(cliente)
 	err = ctx.GetStub().PutState(cliente.Id, cliente1AsBytes)
 	if err != nil {
 		return err
+	}
+
+	// Obtener el cliente 2 del ledger
+	cliente2, err := BuscarClientePorIDBanco2(ctx, destino)
+	if err != nil {
+		return fmt.Errorf("error al obtener el cliente 2: %s", err)
 	}
 
 	// Depositar monto al cliente 2
@@ -256,7 +266,6 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 		MonedaDestino: monedaDestino,
 		Destino:       destino,
 		IdTransaccion: idTransaccion,
-		FirstTime:     firstTime,
 		Timestamp:     time.Now(),
 	}
 
@@ -273,7 +282,7 @@ func (s *SmartContract) CrearTransaccion(ctx contractapi.TransactionContextInter
 func (s *SmartContract) ConsultarTransaccion(ctx contractapi.TransactionContextInterface, idTransaccion string) (*Transaccion, error) {
 	transactionAsBytes, err := ctx.GetStub().GetState(idTransaccion)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read from world state. %s", err.Error())
+		return nil, fmt.Errorf("failed to read from world state. %s", err.Error())
 	}
 
 	// Validar que el hash de la transacción recibida exista en el ledger
@@ -285,7 +294,7 @@ func (s *SmartContract) ConsultarTransaccion(ctx contractapi.TransactionContextI
 	transaccion := new(Transaccion)
 	err = json.Unmarshal(transactionAsBytes, transaccion)
 	if err != nil {
-		return nil, fmt.Errorf("Unmarshal error. %s", err.Error())
+		return nil, fmt.Errorf("unmarshal error. %s", err.Error())
 	}
 
 	return transaccion, nil
@@ -296,13 +305,13 @@ func (s *SmartContract) MostrarClientes(ctx contractapi.TransactionContextInterf
 	stub := ctx.GetStub()
 	creator, err := stub.GetCreator()
 	if err != nil {
-		return fmt.Errorf("Error al obtener el creador: %s", err.Error())
+		return fmt.Errorf("error al obtener el creador: %s", err.Error())
 	}
 
 	// Obtener todos los clientes del ledger
 	clientesIterator, err := stub.GetStateByPartialCompositeKey("cliente", []string{})
 	if err != nil {
-		return fmt.Errorf("Error al obtener clientes del ledger: %s", err.Error())
+		return fmt.Errorf("error al obtener clientes del ledger: %s", err.Error())
 	}
 
 	// Desempaquetar e imprimir los clientes
@@ -310,13 +319,13 @@ func (s *SmartContract) MostrarClientes(ctx contractapi.TransactionContextInterf
 	for clientesIterator.HasNext() {
 		response, err := clientesIterator.Next()
 		if err != nil {
-			return fmt.Errorf("Error al obtener siguiente cliente: %s", err.Error())
+			return fmt.Errorf("error al obtener siguiente cliente: %s", err.Error())
 		}
 
 		cliente := Cliente{}
 		err = json.Unmarshal(response.Value, &cliente)
 		if err != nil {
-			return fmt.Errorf("Error al desempaquetar cliente: %s", err.Error())
+			return fmt.Errorf("error al desempaquetar cliente: %s", err.Error())
 		}
 
 		fmt.Printf("Cliente: %+v\n", cliente)
@@ -330,7 +339,7 @@ func (s *SmartContract) MostrarEntidadesSancionadas(ctx contractapi.TransactionC
 	// Obtener todas las entidades sancionadas del ledger
 	entidadesIterator, err := ctx.GetStub().GetStateByPartialCompositeKey("entidadSancionada", []string{})
 	if err != nil {
-		return fmt.Errorf("Error al obtener entidades sancionadas del ledger: %s", err.Error())
+		return fmt.Errorf("error al obtener entidades sancionadas del ledger: %s", err.Error())
 	}
 
 	// Desempaquetar e imprimir las entidades
@@ -338,7 +347,7 @@ func (s *SmartContract) MostrarEntidadesSancionadas(ctx contractapi.TransactionC
 	for entidadesIterator.HasNext() {
 		response, err := entidadesIterator.Next()
 		if err != nil {
-			return fmt.Errorf("Error al obtener siguiente entidad sancionada: %s", err.Error())
+			return fmt.Errorf("error al obtener siguiente entidad sancionada: %s", err.Error())
 		}
 
 		entidadAsBytes := response.Value
@@ -347,7 +356,7 @@ func (s *SmartContract) MostrarEntidadesSancionadas(ctx contractapi.TransactionC
 		entidad := EntidadSancionada{}
 		err = json.Unmarshal(entidadAsBytes, &entidad)
 		if err != nil {
-			return fmt.Errorf("Error al desempaquetar entidad sancionada: %s", err.Error())
+			return fmt.Errorf("error al desempaquetar entidad sancionada: %s", err.Error())
 		}
 
 		// Imprimir la entidad sancionada
@@ -372,51 +381,12 @@ func CalcularHash(transaccion Transaccion) string {
 	return fmt.Sprintf("%x", sha256.Sum256(hashBytes))
 }
 
-func BuscarClientePorIDBanco1(ctx contractapi.TransactionContextInterface, id string, firstTime string) (Cliente, error) {
-	// Validar si es aprovisionamiento
-	firstTimeBool, err := strconv.ParseBool(firstTime)
-	if err != nil {
-		var defaultCliente Cliente
-		return defaultCliente, fmt.Errorf("Error en input aprovisionamiento: %s", err.Error())
-	}
-	if firstTimeBool {
-		for _, cliente := range clientesBanco1 {
-			if cliente.Id == id {
-				return cliente, nil
-			}
-		}
+func BuscarClientePorIDBanco1(ctx contractapi.TransactionContextInterface, id string) (Cliente, error) {
 
-		return Cliente{}, nil
-	} else {
-		// Obtener el valor del estado del cliente
-		clienteAsBytes, err := ctx.GetStub().GetState(id)
-		if err != nil {
-			return Cliente{}, fmt.Errorf("Error al obtener el cliente del banco 1: %s", err.Error())
-		}
-
-		// Si el cliente no existe, retornar un error
-		if clienteAsBytes == nil {
-			return Cliente{}, fmt.Errorf("Cliente del banco 1 no encontrado")
-		}
-
-		// Desempaquetar el valor del estado en una variable de tipo `Cliente`
-		cliente := Cliente{}
-		err = json.Unmarshal(clienteAsBytes, &cliente)
-		if err != nil {
-			return Cliente{}, fmt.Errorf("Error al desempaquetar el cliente del banco 1: %s", err.Error())
-		}
-
-		// Retornar el cliente
-		return cliente, nil
-	}
-
-}
-
-func BuscarClientePorIDBanco2(ctx contractapi.TransactionContextInterface, id string) (Cliente, error) {
 	// Obtener el valor del estado del cliente
 	clienteAsBytes, err := ctx.GetStub().GetState(id)
 	if err != nil {
-		return Cliente{}, fmt.Errorf("Error al obtener el cliente del banco 1: %s", err.Error())
+		return Cliente{}, fmt.Errorf("error al obtener el cliente del banco 1: %s", err.Error())
 	}
 
 	// Si el cliente no existe, retornar un error
@@ -428,7 +398,31 @@ func BuscarClientePorIDBanco2(ctx contractapi.TransactionContextInterface, id st
 	cliente := Cliente{}
 	err = json.Unmarshal(clienteAsBytes, &cliente)
 	if err != nil {
-		return Cliente{}, fmt.Errorf("Error al desempaquetar el cliente del banco 1: %s", err.Error())
+		return Cliente{}, fmt.Errorf("error al desempaquetar el cliente del banco 1: %s", err.Error())
+	}
+
+	// Retornar el cliente
+	return cliente, nil
+
+}
+
+func BuscarClientePorIDBanco2(ctx contractapi.TransactionContextInterface, id string) (Cliente, error) {
+	// Obtener el valor del estado del cliente
+	clienteAsBytes, err := ctx.GetStub().GetState(id)
+	if err != nil {
+		return Cliente{}, fmt.Errorf("error al obtener el cliente del banco 1: %s", err.Error())
+	}
+
+	// Si el cliente no existe, retornar un error
+	if clienteAsBytes == nil {
+		return Cliente{}, fmt.Errorf("Cliente del banco 1 no encontrado")
+	}
+
+	// Desempaquetar el valor del estado en una variable de tipo `Cliente`
+	cliente := Cliente{}
+	err = json.Unmarshal(clienteAsBytes, &cliente)
+	if err != nil {
+		return Cliente{}, fmt.Errorf("error al desempaquetar el cliente del banco 1: %s", err.Error())
 	}
 
 	// Retornar el cliente
@@ -478,46 +472,33 @@ func EstaSancionado(ctx contractapi.TransactionContextInterface, nombre string) 
 		}
 	}
 
-	// Buscar la entidad en el ledger por nombre
 	_, ok := GetEntidadSancionadaByName(ctx, nombre)
-	if ok {
-		return true
-	}
-
-	return false
+	return ok
 }
 
 // Función para obtener el saldo del cliente
-func GetSaldo(ctx contractapi.TransactionContextInterface, idCliente string, firstTimeBool bool) (float64, error) {
-	if firstTimeBool {
-		for _, clienteEnLista := range clientesBanco1 {
-			if clienteEnLista.Id == idCliente { // Comparar el ID del cliente con la propiedad Id del objeto en la lista
-				return clienteEnLista.Saldo, nil
-			}
-		}
-		return 0.0, nil // Saldo por defecto si no se encuentra el cliente
-	} else {
-		// Obtener el valor del estado del cliente
-		clienteAsBytes, err := ctx.GetStub().GetState(idCliente)
-		if err != nil {
-			return 0.0, fmt.Errorf("Error al obtener el saldo del cliente: %s", err.Error())
-		}
+func GetSaldo(ctx contractapi.TransactionContextInterface, idCliente string) (float64, error) {
 
-		// Si el cliente no existe, retornar 0
-		if clienteAsBytes == nil {
-			return 0.0, nil
-		}
-
-		// Desempaquetar el valor del estado en una variable de tipo `Cliente`
-		cliente := Cliente{}
-		err = json.Unmarshal(clienteAsBytes, &cliente)
-		if err != nil {
-			return 0.0, fmt.Errorf("Error al desempaquetar el cliente: %s", err.Error())
-		}
-
-		// Retornar el valor de la propiedad `Saldo`
-		return cliente.Saldo, nil
+	// Obtener el valor del estado del cliente
+	clienteAsBytes, err := ctx.GetStub().GetState(idCliente)
+	if err != nil {
+		return 0.0, fmt.Errorf("error al obtener el saldo del cliente: %s", err.Error())
 	}
+
+	// Si el cliente no existe, retornar 0
+	if clienteAsBytes == nil {
+		return 0.0, nil
+	}
+
+	// Desempaquetar el valor del estado en una variable de tipo `Cliente`
+	cliente := Cliente{}
+	err = json.Unmarshal(clienteAsBytes, &cliente)
+	if err != nil {
+		return 0.0, fmt.Errorf("error al desempaquetar el cliente: %s", err.Error())
+	}
+
+	// Retornar el valor de la propiedad `Saldo`
+	return cliente.Saldo, nil
 
 }
 
@@ -525,11 +506,11 @@ func main() {
 	chaincode, err := contractapi.NewChaincode(new(SmartContract))
 
 	if err != nil {
-		fmt.Printf("Error create cross-border-contract chaincode: %s", err.Error())
+		fmt.Printf("error create cross-border-contract chaincode: %s", err.Error())
 		return
 	}
 
 	if err := chaincode.Start(); err != nil {
-		fmt.Printf("Error create cross-border-contract chaincode: %s", err.Error())
+		fmt.Printf("error create cross-border-contract chaincode: %s", err.Error())
 	}
 }
